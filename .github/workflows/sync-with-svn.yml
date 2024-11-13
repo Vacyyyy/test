@@ -45,9 +45,9 @@ jobs:
           END
           EOF
   
-          - name: Initialize SVN repo in Git
-          run: |
-            git svn init ${SVN_REPO_URL} -T trunk -b branches -t tags --username ${SVN_USERNAME}
+      - name: Initialize SVN repo in Git
+        run: |
+          git svn init ${SVN_REPO_URL} -T trunk -b branches -t tags --username ${SVN_USERNAME}
         
       - name: Fetch SVN revisions into Git
         run: |
