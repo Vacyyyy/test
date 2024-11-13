@@ -1,5 +1,9 @@
 name: Sync Git and SVN Repositories
 on: push
+env:
+  SVN_PASSWORD: ${{ vars.SVN_PASSWORD }}
+  SVN_USERNAME: ${{ vars.SVN_USERNAME }}
+  SVN_REPO_URL: ${{ vars.SVN_REPO_URL }}
 jobs:
   sync_git_svn:
     runs-on: ubuntu-latest
@@ -11,9 +15,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install git-svn and SVN
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
         run: |
           sudo apt-get update
           sudo apt-get install -y software-properties-common
@@ -45,9 +46,6 @@ jobs:
           EOF
   
       - name: Sync changes from Git to SVN
-        env:
-          SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
         run: |
           git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
           git svn fetch
