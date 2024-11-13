@@ -53,15 +53,26 @@ jobs:
           SVN_REPO_URL: ${{ vars.SVN_REPO_URL }}
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
-          # Initialize git-svn tracking for the SVN repository, tracking trunk
+          # Initialize git-svn tracking for the SVN repository
           git svn init "$SVN_REPO_URL" -T trunk -b branches -t tags --username "$SVN_USERNAME"
           # Fetch all revisions from SVN
           git svn fetch --username "$SVN_USERNAME"
-      
-      - name: Sync SVN Changes to GitHub
+          
+      - name: Verify SVN Branch Exists
         run: |
-          # Rebase any SVN changes onto the current branch to synchronize changes
-          git rebase refs/remotes/trunk
+          # Check that the git-svn branch exists after fetching
+          if ! git show-ref --verify --quiet refs/remotes/git-svn; then
+            echo "Error: 'refs/remotes/git-svn' branch does not exist."
+            exit 1
+          fi
+
+      - name: Rebase SVN Changes onto Git
+        run: |
+          # Rebase the SVN branch onto the current branch to ensure changes are synced
+          git rebase refs/remotes/git-svn
+
+      - name: Push SVN Changes to GitHub
+        run: |
           # Push any new changes from SVN to GitHub
           git push origin HEAD:main
 
@@ -69,15 +80,17 @@ jobs:
         env:
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
-          # Rebase any new Git changes onto the SVN-tracking branch
+          # Rebase any new Git changes onto the SVN branch
           git rebase origin/main
+          
           # Commit changes from Git to SVN
           git svn dcommit --username "$SVN_USERNAME"
 
-      - name: Fetch and Final Sync from SVN to GitHub
+      - name: Fetch and Push Final Changes from SVN to GitHub
         run: |
           # Fetch any new changes from SVN to ensure Git is up-to-date
           git svn fetch
-          git rebase refs/remotes/trunk
+          git rebase refs/remotes/git-svn
+
           # Push any remaining changes to GitHub
           git push origin HEAD:main
