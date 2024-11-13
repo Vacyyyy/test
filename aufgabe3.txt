@@ -1,0 +1,31 @@
+(a) Sortieren der Karten nach Farbe (alle Karo, alle Herz, alle Pik, alle Kreuz)
+
+1. Eingabe: Eine Liste von 52 unsortierten Karten.
+
+2. Initialisierung: Erstelle vier leere Listen für jede der vier Farben (Karo, Herz, Pik und Kreuz).
+
+3. Durchlauf durch die Kartenliste:
+Für jede Karte prüfe die Farbe:
+Wenn die Karte Karo ist, füge sie der Karo-Liste hinzu.
+Wenn die Karte Herz ist, füge sie der Herz-Liste hinzu.
+Wenn die Karte Pik ist, füge sie der Pik-Liste hinzu.
+Wenn die Karte Kreuz ist, füge sie der Kreuz-Liste hinzu.
+
+4. Ausgabe: Vier Listen, die jeweils die Karten der entsprechenden Farbe enthalten.
+
+(b) Sortieren der Karten nach Farbe und aufsteigendem Wert
+
+1. Eingabe: Eine Liste von 52 unsortierten Karten.
+
+2. Schritt 1 - Sortieren nach Farbe:
+Verwende den Algorithmus aus Teil (a), um die Karten in vier Listen (Karo, Herz, Pik, Kreuz) zu sortieren.
+
+3. Schritt 2 - Sortieren nach Wert:
+Für jede der vier Listen:
+Sortiere die Karten innerhalb der Liste nach ihrem Wert. Dabei wird die Reihenfolge 2, 3, 4, ..., 10, Bube, Dame, König, Ass verwendet.
+Dies kann z. B. mit einem einfachen Sortieralgorithmus (z. B. Quicksort oder Mergesort) geschehen, wobei der Wert jeder Karte als Sortierschlüssel dient.
+
+4. Zusammenfügen der Listen:
+Verbinde die vier sortierten Listen zu einer finalen Liste in der Reihenfolge: Karo, Herz, Pik, Kreuz.
+
+5. Ausgabe: Eine vollständig sortierte Liste von Karten, die nach Farbe und Wert geordnet ist.
