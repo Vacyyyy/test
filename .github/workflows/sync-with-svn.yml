@@ -26,7 +26,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Set up the SVN repository as a git-svn remote
-          git svn init https://${secrets.SVN_REPO_URL} --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME} --password ${SVN_PASSWORD}
+          git svn init ${SVN_REPO_URL} --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME} --password ${SVN_PASSWORD}
           git svn fetch
           
           # Make sure the latest changes are fetched and synced
