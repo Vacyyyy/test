@@ -18,16 +18,16 @@ jobs:
           sudo apt-get clean
           sudo apt-get install -y git-svn subversion
 
-      - name: Configure SVN credentials
+      - name: Sync changes from Git to SVN
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
         run: |
-          git config --global svn.username "$SVN_USERNAME"
-          git config --global svn.password "$SVN_PASSWORD"
 
-      - name: Sync changes from Git to SVN
-        run: |
+          # Use credentials for git-svn authentication
+          export GIT_SVN_USERNAME=$SVN_USERNAME
+          export GIT_SVN_PASSWORD=$SVN_PASSWORD
+          
           # Set up the SVN repository as a git-svn remote
           git svn init ${{ secrets.SVN_REPO_URL }} --trunk=trunk --branches=branches --tags=tags
           git svn fetch
