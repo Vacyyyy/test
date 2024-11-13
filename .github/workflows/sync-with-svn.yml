@@ -314,6 +314,8 @@ jobs:
       - name: Check for conflicts
         working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
+          pwd
+          cd test/
           python sync_helper.py check-conflicts "." "svn_repo"
 
       - name: Sync SVN to Git
