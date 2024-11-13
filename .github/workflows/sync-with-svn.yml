@@ -45,11 +45,27 @@ jobs:
           END
           EOF
   
-      - name: Sync changes from Git to SVN
+          - name: Initialize SVN repo in Git
+          run: |
+            git svn init ${SVN_REPO_URL} -T trunk -b branches -t tags --username ${SVN_USERNAME}
+        
+      - name: Fetch SVN revisions into Git
         run: |
-          git svn init ${SVN_REPO_URL} --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
-          git svn fetch
+          git svn fetch || { echo "Failed to fetch from SVN"; exit 1; }
+      
+      - name: Verify SVN Branch Exists
+        run: |
+          if ! git show-ref --quiet remotes/git-svn; then
+            echo "Error: 'remotes/git-svn' branch does not exist. Check SVN layout or permissions.";
+            exit 1;
+          fi
+      
+      - name: Rebase Git branch with SVN
+        run: |
           git rebase remotes/git-svn
+
+      - name: Dcommit
+        run: |
           git svn dcommit
 
       - name: Sync changes from SVN to Git
