@@ -1,206 +1,244 @@
 name: Sync Git and SVN Repositories
-on: push
+
+on: [push, workflow_dispatch]
+
+env:
+  SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
+  SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+  SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+
 jobs:
-  sync_git_svn:
+  sync_repositories:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout Git repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install SVN
-        run: sudo apt-get update && sudo apt-get install -y subversion rsync
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-      - name: Configure SVN credentials
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y subversion rsync
+          python -m pip install svn
+
+      - name: Prepare sync configuration
+        id: prep
+        run: |
+          # Create sync configuration file
+          cat > sync-config.json << EOF
+          {
+            "ignore_patterns": [
+              ".svn/",
+              ".git/",
+              ".github/",
+              ".gitignore",
+              ".svnignore",
+              "*.pyc",
+              "__pycache__",
+              "node_modules/",
+              "sync-config.json"
+            ]
+          }
+          EOF
+
+          # Create sync helper script
+          cat > sync_helper.py << 'EOF'
+          import os
+          import sys
+          import json
+          import subprocess
+          import fnmatch
+          from pathlib import Path
+
+          def load_config():
+              with open('sync-config.json', 'r') as f:
+                  return json.load(f)
+
+          def should_ignore(path, ignore_patterns):
+              path_str = str(path)
+              return any(fnmatch.fnmatch(path_str, pattern) for pattern in ignore_patterns)
+
+          def run_command(cmd, check=True):
+              try:
+                  result = subprocess.run(
+                      cmd,
+                      check=check,
+                      capture_output=True,
+                      text=True
+                  )
+                  return result
+              except subprocess.CalledProcessError as e:
+                  print(f"Error executing command: {' '.join(cmd)}")
+                  print(f"Error output: {e.stderr}")
+                  if check:
+                      sys.exit(1)
+                  return e
+
+          def sync_directories(source_path, target_path, ignore_patterns):
+              source_path = Path(source_path)
+              target_path = Path(target_path)
+              
+              # Create target directory if it doesn't exist
+              target_path.mkdir(parents=True, exist_ok=True)
+              
+              # Walk through all files in source
+              for source_file in source_path.rglob('*'):
+                  if not source_file.is_file():
+                      continue
+                      
+                  # Skip ignored files
+                  if should_ignore(source_file, ignore_patterns):
+                      continue
+                      
+                  # Calculate relative path
+                  relative_path = source_file.relative_to(source_path)
+                  target_file = target_path / relative_path
+                  
+                  # Create parent directories if they don't exist
+                  target_file.parent.mkdir(parents=True, exist_ok=True)
+                  
+                  # Compare and copy if different
+                  if not target_file.exists() or not files_are_identical(source_file, target_file):
+                      print(f"Syncing: {relative_path}")
+                      target_file.write_bytes(source_file.read_bytes())
+                      yield relative_path
+
+          def files_are_identical(file1, file2):
+              try:
+                  return file1.read_bytes() == file2.read_bytes()
+              except FileNotFoundError:
+                  return False
+
+          def sync_git_to_svn(git_path, svn_path, config):
+              ignore_patterns = config['ignore_patterns']
+              
+              # Sync files from Git to SVN
+              for changed_file in sync_directories(git_path, svn_path, ignore_patterns):
+                  svn_file = Path(svn_path) / changed_file
+                  run_command(['svn', 'add', str(svn_file), '--parents', '--force'], check=False)
+              
+              # Handle deletions in SVN
+              for svn_file in Path(svn_path).rglob('*'):
+                  if not svn_file.is_file() or should_ignore(svn_file, ignore_patterns):
+                      continue
+                      
+                  relative_path = svn_file.relative_to(svn_path)
+                  git_file = Path(git_path) / relative_path
+                  
+                  if not git_file.exists():
+                      print(f"Deleting from SVN: {relative_path}")
+                      run_command(['svn', 'rm', str(svn_file)], check=False)
+
+          def sync_svn_to_git(svn_path, git_path, config):
+              ignore_patterns = config['ignore_patterns']
+              changed_files = set()
+              
+              # Sync files from SVN to Git
+              for changed_file in sync_directories(svn_path, git_path, ignore_patterns):
+                  changed_files.add(changed_file)
+              
+              # Handle deletions in Git
+              for git_file in Path(git_path).rglob('*'):
+                  if not git_file.is_file() or should_ignore(git_file, ignore_patterns):
+                      continue
+                      
+                  relative_path = git_file.relative_to(git_path)
+                  svn_file = Path(svn_path) / relative_path
+                  
+                  if not svn_file.exists():
+                      print(f"Deleting from Git: {relative_path}")
+                      git_file.unlink()
+                      changed_files.add(relative_path)
+              
+              return changed_files
+
+          if __name__ == '__main__':
+              if len(sys.argv) != 4:
+                  print("Usage: sync_helper.py <direction> <source_path> <target_path>")
+                  sys.exit(1)
+
+              direction = sys.argv[1]
+              source_path = sys.argv[2]
+              target_path = sys.argv[3]
+              
+              config = load_config()
+              
+              if direction == 'git-to-svn':
+                  sync_git_to_svn(source_path, target_path, config)
+              elif direction == 'svn-to-git':
+                  sync_svn_to_git(source_path, target_path, config)
+              else:
+                  print(f"Unknown direction: {direction}")
+                  sys.exit(1)
+          EOF
+
+          chmod +x sync_helper.py
+
+      - name: Configure SVN
         run: |
           mkdir -p ~/.subversion
           cat > ~/.subversion/servers << EOF
           [global]
           store-passwords = yes
           store-plaintext-passwords = yes
+          ssl-trust-default-ca = yes
           EOF
-          mkdir -p ~/.subversion/auth/svn.simple
 
       - name: Checkout SVN repository
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
         run: |
-          mkdir -p svn_repo
           svn checkout "$SVN_REPO_URL" svn_repo \
             --non-interactive \
             --trust-server-cert \
-            --config-option servers:global:store-plaintext-passwords=yes \
-            --config-option servers:global:store-passwords=yes \
-            --config-option config:auth:password-stores=simple \
             --username "$SVN_USERNAME" \
             --password "$SVN_PASSWORD"
+        continue-on-error: false
 
-      - name: Setup ignore patterns
+      - name: Sync SVN to Git
         run: |
-          # Create global SVN ignore property
-          cat > svn_ignore_patterns << EOF
-          .svn
-          .git
-          .github
-          .hooks
-          .gitignore
-          .svnignore
-          EOF
-
-          # Apply SVN ignore patterns globally in the SVN repository
-          cd svn_repo
-          svn propset svn:global-ignores -F ../svn_ignore_patterns .
-          svn update --non-interactive --trust-server-cert \
-            --username "$SVN_USERNAME" --password "$SVN_PASSWORD"
-          cd ..
-
-          # Create .gitignore if it doesn't exist
-          if [ ! -f .gitignore ]; then
-            cat > .gitignore << EOF
-          .svn/
-          .git/
-          .github/
-          .hooks/
-          .svnignore
-          EOF
-          fi
-
-      - name: Sync changes from SVN to Git
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Function to check if a file should be ignored
-          is_ignored() {
-            local file="$1"
-            local patterns_file="$2"
-            
-            # Normalize path
-            file="${file#./}"
-            
-            # Check against ignore patterns
-            while IFS= read -r pattern; do
-              # Skip empty lines and comments
-              [[ -z "$pattern" || "$pattern" == \#* ]] && continue
-              
-              # Remove trailing slash and clean pattern
-              pattern="${pattern%/}"
-              pattern="${pattern#/}"
-              
-              # Convert path to pattern format
-              if [[ "$file" == "$pattern" || "$file" == "$pattern"/* || "$file" == */"$pattern"/* ]]; then
-                return 0
-              fi
-            done < "$patterns_file"
-            return 1
-          }
-
-          # Create temporary ignore patterns file
-          cat > temp_ignore_patterns << EOF
-          .svn
-          .git
-          .github
-          .hooks
-          .gitignore
-          .svnignore
-          EOF
-
-          # Sync SVN to Git
-          cd svn_repo
-          svn update --non-interactive --trust-server-cert \
-            --username "$SVN_USERNAME" --password "$SVN_PASSWORD"
+          python sync_helper.py svn-to-git "svn_repo" "."
           
-          find . -type f | while IFS= read -r file; do
-            # Skip .svn directories and ignored files
-            if [[ "$file" == */.svn/* ]] || is_ignored "${file#./}" "../temp_ignore_patterns"; then
-              continue
-            fi
-            
-            file="${file#./}"
-            if [ -f "$file" ]; then
-              if [ ! -f "../$file" ] || ! cmp -s "$file" "../$file"; then
-                echo "Syncing $file from SVN to Git"
-                mkdir -p "$(dirname "../$file")"
-                cp "$file" "../$file"
-                git -C .. add "$file"
-              fi
-            fi
-          done
+          # Configure Git
+          git config --global user.email "github-action@users.noreply.github.com"
+          git config --global user.name "GitHub Action"
           
-          cd ..
-          rm temp_ignore_patterns
+          # Add all changes including deletions
+          git add -A
           
+          # Commit if there are changes
           if ! git diff --staged --quiet; then
-            git config --global user.email "github-action@users.noreply.github.com"
-            git config --global user.name "GitHub Action"
-            git commit -m "Sync changes from SVN to Git"
-            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git commit -m "Sync changes from SVN to Git [skip ci]"
             git push
-            echo "Changes from SVN committed and pushed to Git"
           else
-            echo "No changes from SVN to sync to Git"
+            echo "No changes to sync from SVN to Git"
           fi
 
       - name: Sync Git to SVN
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
         run: |
-          # Create temporary ignore patterns file
-          cat > temp_ignore_patterns << EOF
-          .svn
-          .git
-          .github
-          .hooks
-          .gitignore
-          .svnignore
-          EOF
-
-          # Sync Git to SVN
-          git ls-files | while read -r file; do
-            # Skip ignored files
-            if is_ignored "$file" "temp_ignore_patterns"; then
-              continue
-            fi
-            
-            if [ ! -f "svn_repo/$file" ] || ! cmp -s "$file" "svn_repo/$file"; then
-              echo "Syncing $file from Git to SVN"
-              mkdir -p "svn_repo/$(dirname "$file")"
-              cp "$file" "svn_repo/$file"
-            fi
-          done
+          python sync_helper.py git-to-svn "." "svn_repo"
           
-          rm temp_ignore_patterns
-          
-          # Commit changes to SVN
+          # Commit changes if any
           cd svn_repo
-          
-          # Remove any .github directory if it exists
-          if [ -d ".github" ]; then
-            svn rm --force .github
-          fi
-          
-          # Add new files that aren't ignored
-          svn status | grep '^?' | cut -c9- | while IFS= read -r file; do
-            if ! is_ignored "$file" "../temp_ignore_patterns"; then
-              svn add --parents "$file"
-            fi
-          done
-          
-          # Check if there are any changes to commit
-          if [[ -n "$(svn status)" ]]; then
-            svn commit --non-interactive --trust-server-cert \
-              --username "$SVN_USERNAME" --password "$SVN_PASSWORD" \
+          if [ -n "$(svn status)" ]; then
+            svn commit \
+              --non-interactive \
+              --trust-server-cert \
+              --username "$SVN_USERNAME" \
+              --password "$SVN_PASSWORD" \
               -m "Sync changes from Git to SVN"
-            echo "Changes pushed to SVN"
           else
-            echo "No changes to commit to SVN"
+            echo "No changes to sync from Git to SVN"
           fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f sync_helper.py sync-config.json
+          rm -rf svn_repo
