@@ -20,7 +20,7 @@ jobs:
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository ppa:git-core/ppa
           sudo apt-get update
-          sudo apt-get install -y git-svn expect
+          sudo apt-get install -y git-svn
 
       - name: Create SVN Authentication File
         env:
@@ -48,44 +48,36 @@ jobs:
           END
           EOF
 
-      - name: Initialize SVN repo in Git
+      - name: Initialize and Fetch SVN Repository
         env:
           SVN_REPO_URL: ${{ vars.SVN_REPO_URL }}
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
+          # Initialize git-svn tracking for the SVN repository, tracking trunk
           git svn init "$SVN_REPO_URL" -T trunk -b branches -t tags --username "$SVN_USERNAME"
-          
-      - name: Fetch SVN revisions into Git
-        env:
-          SVN_USERNAME: ${{ vars.SVN_USERNAME }}
-        run: |
+          # Fetch all revisions from SVN
           git svn fetch --username "$SVN_USERNAME"
-
-      - name: Rebase SVN changes onto Git
+      
+      - name: Sync SVN Changes to GitHub
         run: |
-          # Rebase SVN changes onto the latest Git branch
-          git rebase remotes/git-svn
-
-      - name: Push SVN changes to GitHub
-        run: |
+          # Rebase any SVN changes onto the current branch to synchronize changes
+          git rebase refs/remotes/trunk
           # Push any new changes from SVN to GitHub
           git push origin HEAD:main
 
-      - name: Sync any new Git changes to SVN
+      - name: Sync Git Changes to SVN
         env:
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
-          # Rebase any new Git changes onto the SVN branch
+          # Rebase any new Git changes onto the SVN-tracking branch
           git rebase origin/main
-
-          # Push changes from Git to SVN
+          # Commit changes from Git to SVN
           git svn dcommit --username "$SVN_USERNAME"
 
-      - name: Fetch and push final changes from SVN to GitHub
+      - name: Fetch and Final Sync from SVN to GitHub
         run: |
-          # Fetch from SVN to ensure Git is fully up-to-date with SVN
+          # Fetch any new changes from SVN to ensure Git is up-to-date
           git svn fetch
-          git rebase remotes/git-svn
-
+          git rebase refs/remotes/trunk
           # Push any remaining changes to GitHub
           git push origin HEAD:main
