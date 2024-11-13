@@ -33,9 +33,20 @@ jobs:
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
         run: |
           mkdir -p svn_repo
-          # SVN checkout logic
-          ...
-
+          echo '#!/bin/bash' > svn_cred_script
+          echo "echo -n \$SVN_USERNAME" >> svn_cred_script
+          echo "echo" >> svn_cred_script
+          echo "echo -n \$SVN_PASSWORD" >> svn_cred_script
+          chmod +x svn_cred_script
+          SVN_AUTH_FILE="$PWD/svn_cred_script"
+          svn checkout "$SVN_REPO_URL" svn_repo \
+            --non-interactive \
+            --trust-server-cert \
+            --config-option servers:global:store-plaintext-passwords=yes \
+            --config-option servers:global:store-passwords=yes \
+            --config-option config:auth:password-stores=simple \
+            --username "$SVN_USERNAME" \
+            --password "$SVN_PASSWORD"
       - name: Sync changes from SVN to Git
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
