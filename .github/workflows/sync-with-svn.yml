@@ -72,14 +72,13 @@ jobs:
           .svnignore
           EOF
 
-          # Function to check if a file should be ignored
           should_ignore() {
-            local file="$1"
-            local patterns_file="$2"
-            while IFS= read -r pattern; do
+          local file="$1"
+          local patterns_file="$2"
+          while IFS= read -r pattern; do
               [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
-            done < "$patterns_file"
-            return 1
+          done < "$patterns_file"
+          return 1
           }
 
           # Get list of all files in SVN working copy
@@ -124,19 +123,33 @@ jobs:
       - name: Sync Git to SVN
         run: |
           should_ignore() {
-            local file="$1"
-            local patterns_file="$2"
-            while IFS= read -r pattern; do
-              [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
-            done < "$patterns_file"
-            return 1
+              local file="$1"
+              local patterns_file="$2"
+              while IFS= read -r pattern; do
+                  [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
+              done < "$patterns_file"
+              return 1
           }
+
           # Sync changes from Git to SVN
           git ls-files | while read -r file; do
-          # Ensure the file isn't ignored by SVN
-          if should_ignore "$file" "$WORKFLOW_DIR/svn_ignore_patterns.txt"; then
-              continue
-          fi
+              # Ensure the file isn't ignored by SVN
+              if should_ignore "$file" "$WORKFLOW_DIR/svn_ignore_patterns.txt"; then
+                  continue
+              fi
+              
+              # Check if the file doesn't exist in SVN or if it differs from the Git version
+              if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
+                  echo "Syncing $file from Git to SVN"
+                  
+                  # Ensure target directory exists in SVN repo
+                  mkdir -p "svn_repo/$(dirname "$file")"
+                  
+                  # Copy the file from Git to SVN
+                  cp "$file" "svn_repo/$file"
+              fi
+          done
+
           
           # Check if the file doesn't exist in SVN or if it differs from the Git version
           if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
