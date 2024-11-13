@@ -33,8 +33,20 @@ jobs:
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
         run: |
           mkdir -p svn_repo
-          # SVN checkout logic here
-          ...
+          echo '#!/bin/bash' > svn_cred_script
+          echo "echo -n \$SVN_USERNAME" >> svn_cred_script
+          echo "echo" >> svn_cred_script
+          echo "echo -n \$SVN_PASSWORD" >> svn_cred_script
+          chmod +x svn_cred_script
+          SVN_AUTH_FILE="$PWD/svn_cred_script"
+          svn checkout "$SVN_REPO_URL" svn_repo \
+            --non-interactive \
+            --trust-server-cert \
+            --config-option servers:global:store-plaintext-passwords=yes \
+            --config-option servers:global:store-passwords=yes \
+            --config-option config:auth:password-stores=simple \
+            --username "$SVN_USERNAME" \
+            --password "$SVN_PASSWORD"
 
       - name: Sync changes from SVN to Git
         env:
@@ -42,14 +54,25 @@ jobs:
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Ensure the ignore file is created
+          # Store current directory
+          WORKFLOW_DIR="$PWD"
+
+          # Create separate ignore patterns for SVN and Git
           cat > "$WORKFLOW_DIR/svn_ignore_patterns.txt" << EOF
+          .svn/
+          .git/
+          .github/
+          .hooks/
+          EOF
+
+          cat > "$WORKFLOW_DIR/git_ignore_patterns.txt" << EOF
           .svn/
           .git/
           .github/
           .svnignore
           EOF
 
+          # Function to check if a file should be ignored
           should_ignore() {
             local file="$1"
             local patterns_file="$2"
@@ -59,16 +82,72 @@ jobs:
             return 1
           }
 
-          git ls-files | while read -r file; do
-            if should_ignore "$file" "$WORKFLOW_DIR/svn_ignore_patterns.txt"; then
+          # Get list of all files in SVN working copy
+          cd svn_repo
+          find . -type f | while IFS= read -r file; do
+            # Remove leading './' from file path
+            file="${file#./}"
+
+            # Skip files that should be ignored in Git
+            if should_ignore "$file" "$WORKFLOW_DIR/git_ignore_patterns.txt"; then
               continue
             fi
-            if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
-              echo "Syncing $file from Git to SVN"
-              # Ensure the target directory exists
-              mkdir -p "svn_repo/$(dirname "$file")"
-              cp "$file" "svn_repo/$file"
+
+            # If file exists and is not in Git or is different
+            if [ -f "$file" ]; then
+              if [ ! -f "../$file" ] || ! cmp -s "$file" "../$file"; then
+                echo "Syncing $file from SVN to Git"
+                # Ensure target directory exists
+                mkdir -p "$(dirname "../$file")"
+                # Copy the file
+                cp "$file" "../$file"
+                # Add to Git
+                git -C .. add "$file"
+              fi
             fi
+          done
+
+          # If there are changes, commit them
+          cd ..
+          if ! git diff --staged --quiet; then
+            git config --global user.email "github-action@users.noreply.github.com"
+            git config --global user.name "GitHub Action"
+            git commit -m "Sync changes from SVN to Git"
+            # Configure Git with token-based authentication
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git push
+            echo "Changes from SVN committed and pushed to Git"
+          else
+            echo "No changes from SVN to sync to Git"
+          fi
+
+      - name: Sync Git to SVN
+        run: |
+          should_ignore() {
+            local file="$1"
+            local patterns_file="$2"
+            while IFS= read -r pattern; do
+              [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
+            done < "$patterns_file"
+            return 1
+          }
+          # Sync changes from Git to SVN
+          git ls-files | while read -r file; do
+          # Ensure the file isn't ignored by SVN
+          if should_ignore "$file" "$WORKFLOW_DIR/svn_ignore_patterns.txt"; then
+              continue
+          fi
+          
+          # Check if the file doesn't exist in SVN or if it differs from the Git version
+          if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
+              echo "Syncing $file from Git to SVN"
+              
+              # Ensure target directory exists in SVN repo
+              mkdir -p "svn_repo/$(dirname "$file")"
+              
+              # Copy the file from Git to SVN
+              cp "$file" "svn_repo/$file"
+          fi
           done
 
       - name: Commit and Push to SVN
