@@ -8,12 +8,6 @@ jobs:
   sync_git_svn:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Git repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install git-svn and SVN
         run: |
           sudo apt-get update
@@ -21,6 +15,12 @@ jobs:
           sudo add-apt-repository ppa:git-core/ppa
           sudo apt-get update
           sudo apt-get install -y git-svn
+
+      - name: Checkout Git repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create SVN Authentication File
         env:
@@ -53,6 +53,7 @@ jobs:
           SVN_REPO_URL: ${{ vars.SVN_REPO_URL }}
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
+          cd test/
           # Initialize git-svn tracking for the SVN repository
           git svn init "$SVN_REPO_URL" -T trunk -b branches -t tags --username "$SVN_USERNAME"
           # Fetch all revisions from SVN
