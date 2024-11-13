@@ -47,6 +47,7 @@ jobs:
       - name: Sync changes from Git to SVN
         env:
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
         run: |
           git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
           git svn fetch
