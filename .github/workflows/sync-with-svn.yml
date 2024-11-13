@@ -1,4 +1,4 @@
-name: Sync Git and SVN Repositories
+name: Bidirectional Sync Git and SVN
 on: push
 env:
   SVN_PASSWORD: ${{ vars.SVN_PASSWORD }}
@@ -23,6 +23,9 @@ jobs:
           sudo apt-get install -y git-svn expect
 
       - name: Create SVN Authentication File
+        env:
+          SVN_USERNAME: ${{ vars.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ vars.SVN_PASSWORD }}
         run: |
           mkdir -p ~/.subversion/auth/svn.simple
           cat <<EOF > ~/.subversion/auth/svn.simple/fba5e44bd62f064c71637fd742f1764d
@@ -32,7 +35,7 @@ jobs:
           <https://svn.informatik.uni-rostock.de:443> SVN  - ITMZ / IFI (Windows)
           K 8
           username
-          V 6
+          V ${#SVN_USERNAME}
           ${SVN_USERNAME}
           K 8
           passtype
@@ -40,29 +43,49 @@ jobs:
           simple
           K 8
           password
-          V 64
+          V ${#SVN_PASSWORD}
           ${SVN_PASSWORD}
           END
           EOF
-  
-      - name: Initialize SVN repo in Git
-        run: |
-          git svn init ${SVN_REPO_URL} -T trunk -b branches -t tags --username ${SVN_USERNAME}
-        
-      - name: Fetch SVN revisions into Git
-        run: |
-          git svn fetch --username ${SVN_USERNAME}
 
-      - name: Rebase Git branch with SVN
+      - name: Initialize SVN repo in Git
+        env:
+          SVN_REPO_URL: ${{ vars.SVN_REPO_URL }}
+          SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
+          git svn init "$SVN_REPO_URL" -T trunk -b branches -t tags --username "$SVN_USERNAME"
+          
+      - name: Fetch SVN revisions into Git
+        env:
+          SVN_USERNAME: ${{ vars.SVN_USERNAME }}
+        run: |
+          git svn fetch --username "$SVN_USERNAME"
+
+      - name: Rebase SVN changes onto Git
+        run: |
+          # Rebase SVN changes onto the latest Git branch
           git rebase remotes/git-svn
 
-      - name: Dcommit
+      - name: Push SVN changes to GitHub
         run: |
-          git svn dcommit --username ${SVN_USERNAME}
+          # Push any new changes from SVN to GitHub
+          git push origin HEAD:main
 
-      - name: Sync changes from SVN to Git
+      - name: Sync any new Git changes to SVN
+        env:
+          SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
+          # Rebase any new Git changes onto the SVN branch
+          git rebase origin/main
+
+          # Push changes from Git to SVN
+          git svn dcommit --username "$SVN_USERNAME"
+
+      - name: Fetch and push final changes from SVN to GitHub
+        run: |
+          # Fetch from SVN to ensure Git is fully up-to-date with SVN
           git svn fetch
           git rebase remotes/git-svn
-          git push
+
+          # Push any remaining changes to GitHub
+          git push origin HEAD:main
