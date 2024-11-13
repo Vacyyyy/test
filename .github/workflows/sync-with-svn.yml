@@ -54,9 +54,8 @@ jobs:
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
           cd test/
-          # Initialize git-svn tracking for the SVN repository
-          git svn init "$SVN_REPO_URL" -T trunk -b branches -t tags --username "$SVN_USERNAME"
-          # Fetch all revisions from SVN
+          git branch -m main
+          git svn init https://svn.informatik.uni-rostock.de/lehre/ip2024/playground/ -T trunk -b branches -t tags --username de2403 --prefix=git-svn/
           git svn fetch --username "$SVN_USERNAME"
 
       - name: Rebase SVN Changes onto Git
@@ -74,17 +73,11 @@ jobs:
         env:
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
-          # Rebase any new Git changes onto the SVN branch
           git rebase origin/main
-          
-          # Commit changes from Git to SVN
           git svn dcommit --username "$SVN_USERNAME"
 
       - name: Fetch and Push Final Changes from SVN to GitHub
         run: |
-          # Fetch any new changes from SVN to ensure Git is up-to-date
           git svn fetch
           git rebase remotes/git-svn
-
-          # Push any remaining changes to GitHub
           git push origin HEAD:main
