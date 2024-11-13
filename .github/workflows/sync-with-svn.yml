@@ -47,22 +47,79 @@ jobs:
             --config-option config:auth:password-stores=simple \
             --username "$SVN_USERNAME" \
             --password "$SVN_PASSWORD"
-      - name: Sync changes from SVN to Git
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          should_ignore() {
-            local file="$1"
-            local patterns_file="$2"
-            while IFS= read -r pattern; do
-              [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
-            done < "$patterns_file"
-            return 1
-          }
-          # Your syncing logic for SVN to Git
-          ...
+
+          - name: Sync changes from SVN to Git
+            env:
+              SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+              SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            run: |
+              # Store current directory
+              WORKFLOW_DIR="$PWD"
+    
+              # Create separate ignore patterns for SVN and Git
+              cat > "$WORKFLOW_DIR/svn_ignore_patterns.txt" << EOF
+              .svn/
+              .git/
+              .github/
+              .hooks/
+              EOF
+    
+              cat > "$WORKFLOW_DIR/git_ignore_patterns.txt" << EOF
+              .svn/
+              .git/
+              .github/
+              .svnignore
+              EOF
+    
+              # Function to check if a file should be ignored
+              should_ignore() {
+                local file="$1"
+                local patterns_file="$2"
+                while IFS= read -r pattern; do
+                  [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
+                done < "$patterns_file"
+                return 1
+              }
+    
+              # Get list of all files in SVN working copy
+              cd svn_repo
+              find . -type f | while IFS= read -r file; do
+                # Remove leading './' from file path
+                file="${file#./}"
+    
+                # Skip files that should be ignored in Git
+                if should_ignore "$file" "$WORKFLOW_DIR/git_ignore_patterns.txt"; then
+                  continue
+                fi
+    
+                # If file exists and is not in Git or is different
+                if [ -f "$file" ]; then
+                  if [ ! -f "../$file" ] || ! cmp -s "$file" "../$file"; then
+                    echo "Syncing $file from SVN to Git"
+                    # Ensure target directory exists
+                    mkdir -p "$(dirname "../$file")"
+                    # Copy the file
+                    cp "$file" "../$file"
+                    # Add to Git
+                    git -C .. add "$file"
+                  fi
+                fi
+              done
+    
+              # If there are changes, commit them
+              cd ..
+              if ! git diff --staged --quiet; then
+                git config --global user.email "github-action@users.noreply.github.com"
+                git config --global user.name "GitHub Action"
+                git commit -m "Sync changes from SVN to Git"
+                # Configure Git with token-based authentication
+                git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+                git push
+                echo "Changes from SVN committed and pushed to Git"
+              else
+                echo "No changes from SVN to sync to Git"
+              fi
 
       - name: Sync Git to SVN
         run: |
