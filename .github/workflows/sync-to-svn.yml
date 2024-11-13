@@ -116,7 +116,7 @@ jobs:
           if ! git diff --staged --quiet; then
             git config --global user.email "github-action@users.noreply.github.com"
             git config --global user.name "GitHub Action"
-            git commit -m "Sync changes from SVN to Git (including SVN-only files)"
+            git commit -m "Sync changes from SVN to Git"
             # Configure Git with token-based authentication
             git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git push
