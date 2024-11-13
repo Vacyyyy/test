@@ -26,7 +26,7 @@ jobs:
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
         run: |
           svn --non-interactive --username ${SVN_USERNAME} --password ${SVN_PASSWORD} list ${SVN_REPO_URL}
-          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
+          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username "https://${SVN_USERNAME}"
           git svn fetch --username ${SVN_USERNAME}
           git rebase remotes/git-svn
           git svn dcommit --username ${SVN_USERNAME}
