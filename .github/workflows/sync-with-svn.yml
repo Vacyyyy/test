@@ -72,6 +72,12 @@ jobs:
           .svnignore
           EOF
 
+          # Debugging: Check if the files were created
+          echo "Created svn_ignore_patterns.txt in $WORKFLOW_DIR"
+          cat "$WORKFLOW_DIR/svn_ignore_patterns.txt"
+          echo "Created git_ignore_patterns.txt in $WORKFLOW_DIR"
+          cat "$WORKFLOW_DIR/git_ignore_patterns.txt"
+
           should_ignore() {
           local file="$1"
           local patterns_file="$2"
@@ -137,20 +143,19 @@ jobs:
               if should_ignore "$file" "$WORKFLOW_DIR/svn_ignore_patterns.txt"; then
                   continue
               fi
-              
+
               # Check if the file doesn't exist in SVN or if it differs from the Git version
               if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
                   echo "Syncing $file from Git to SVN"
-                  
+
                   # Ensure target directory exists in SVN repo
                   mkdir -p "svn_repo/$(dirname "$file")"
-                  
+
                   # Copy the file from Git to SVN
                   cp "$file" "svn_repo/$file"
               fi
           done
 
-          
           # Check if the file doesn't exist in SVN or if it differs from the Git version
           if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
               echo "Syncing $file from Git to SVN"
