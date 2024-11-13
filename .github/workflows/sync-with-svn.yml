@@ -16,25 +16,20 @@ jobs:
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository ppa:git-core/ppa
           sudo apt-get update
-          sudo apt-get install -y git
-          sudo apt-get install -y git-svn
-
-      - name: Configure SVN credentials
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
-        run: |
-          # Store SVN credentials securely
-          mkdir -p ~/.subversion
-          echo -e "[auth]\npassword-stores = " > ~/.subversion/config
-          echo -e "[auth]\nusername = ${SVN_USERNAME}\npassword = ${SVN_PASSWORD}" > ~/.subversion/servers
+          sudo apt-get install -y git-svn expect
 
       - name: Sync changes from Git to SVN
         env:
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
         run: |
-          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags
+          expect -c "
+          spawn git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
+          expect \"Password for '${SVN_USERNAME}':\"
+          send \"$SVN_PASSWORD\r\"
+          interact
+          "
           git svn fetch
           git rebase remotes/git-svn
           git svn dcommit
