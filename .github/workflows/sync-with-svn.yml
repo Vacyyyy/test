@@ -57,19 +57,11 @@ jobs:
           git svn init "$SVN_REPO_URL" -T trunk -b branches -t tags --username "$SVN_USERNAME"
           # Fetch all revisions from SVN
           git svn fetch --username "$SVN_USERNAME"
-          
-      - name: Verify SVN Branch Exists
-        run: |
-          # Check that the git-svn branch exists after fetching
-          if ! git show-ref --verify --quiet refs/remotes/git-svn; then
-            echo "Error: 'refs/remotes/git-svn' branch does not exist."
-            exit 1
-          fi
 
       - name: Rebase SVN Changes onto Git
         run: |
           # Rebase the SVN branch onto the current branch to ensure changes are synced
-          git rebase refs/remotes/git-svn
+          git rebase remotes/git-svn --remote
 
       - name: Push SVN Changes to GitHub
         run: |
