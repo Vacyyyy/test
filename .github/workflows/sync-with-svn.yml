@@ -26,15 +26,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           svn --username ${{ secrets.SVN_USERNAME }} --password ${{ secrets.SVN_PASSWORD }} --no-auth-cache --non-interactive list https://${{ secrets.SVN_REPO_URL }}
-          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags
-          git svn fetch
+          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --no-auth-cache --non-interactive
+          git svn fetch --no-auth-cache --non-interactive
           git rebase remotes/git-svn
-          git svn dcommit
+          git svn dcommit --no-auth-cache --non-interactive
 
       - name: Sync changes from SVN to Git
         run: |
           # Ensure that we're up to date with the SVN repo
-          git svn fetch
+          git svn fetch --no-auth-cache --non-interactive
 
           # Sync SVN changes to the local Git repo
           git rebase remotes/git-svn
