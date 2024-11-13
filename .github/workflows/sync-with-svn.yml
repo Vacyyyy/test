@@ -22,9 +22,6 @@ jobs:
         run: |
           # Set up the SVN repository as a git-svn remote
           git svn init https://${{ secrets.SVN_USERNAME }}:${{ secrets.SVN_PASSWORD}}@${{ secrets.SVN_REPO_URL}} --trunk=trunk --branches=branches --tags=tags
-
-          # Set up the SVN repository as a git-svn remote
-          git svn init ${{ secrets.SVN_REPO_URL }} --trunk=trunk --branches=branches --tags=tags
           git svn fetch
           
           # Make sure the latest changes are fetched and synced
