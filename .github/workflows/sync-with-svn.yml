@@ -21,28 +21,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git-svn expect
 
-          - name: Create SVN Authentication File
-          run: |
-            mkdir -p ~/.subversion/auth/svn.simple
-            cat <<EOF > ~/.subversion/auth/svn.simple/fba5e44bd62f064c71637fd742f1764d
-            K 15
-            svn:realmstring
-            V 71
-            <https://svn.informatik.uni-rostock.de:443> SVN  - ITMZ / IFI (Windows)
-            K 8
-            username
-            V ${# secrets.SVN_USERNAME }
-            ${secrets.SVN_USERNAME}
-            K 8
-            passtype
-            V 6
-            simple
-            K 8
-            password
-            V 64
-            ${secrets.SVN_PASSWORD}
-            END
-            EOF
+      - name: Create SVN Authentication File
+        run: |
+          mkdir -p ~/.subversion/auth/svn.simple
+          cat <<EOF > ~/.subversion/auth/svn.simple/fba5e44bd62f064c71637fd742f1764d
+          K 15
+          svn:realmstring
+          V 71
+          <https://svn.informatik.uni-rostock.de:443> SVN  - ITMZ / IFI (Windows)
+          K 8
+          username
+          V ${# secrets.SVN_USERNAME }
+          ${secrets.SVN_USERNAME}
+          K 8
+          passtype
+          V 6
+          simple
+          K 8
+          password
+          V 64
+          ${secrets.SVN_PASSWORD}
+          END
+          EOF
   
       - name: Sync changes from Git to SVN
         env:
