@@ -29,7 +29,7 @@ jobs:
           git config --global svn-remote.svn.url "https://${{ secrets.SVN_REPO_URL }}"
           git config --global svn-remote.svn.username "${{ secrets.SVN_USERNAME }}"
           git config --global svn-remote.svn.password "${{ secrets.SVN_PASSWORD }}"
-          git svn init --trunk=trunk --branches=branches --tags=tags --no-auth-cache
+          git svn init svn --trunk=trunk --branches=branches --tags=tags --no-auth-cache
           git rebase remotes/git-svn
           git svn dcommit
 
