@@ -31,8 +31,8 @@ jobs:
           <https://svn.informatik.uni-rostock.de:443> SVN  - ITMZ / IFI (Windows)
           K 8
           username
-          V ${# secrets.SVN_USERNAME }
-          ${secrets.SVN_USERNAME}
+          V 6
+          ${SVN_USERNAME}
           K 8
           passtype
           V 6
@@ -40,7 +40,7 @@ jobs:
           K 8
           password
           V 64
-          ${secrets.SVN_PASSWORD}
+          ${SVN_PASSWORD}
           END
           EOF
   
