@@ -47,7 +47,7 @@ jobs:
   
       - name: Sync changes from Git to SVN
         run: |
-          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
+          git svn init ${SVN_REPO_URL} --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
           git svn fetch
           git rebase remotes/git-svn
           git svn dcommit
