@@ -6,19 +6,32 @@ env:
   SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
   SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
   SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+  WORKSPACE_ROOT: /home/runner/work/test
 
 jobs:
   sync_repositories:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Create workspace structure
+        run: |
+          mkdir -p $WORKSPACE_ROOT
+          cd $WORKSPACE_ROOT
+
       - name: Checkout Git repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          persist-credentials: true
-          clean: true
+          path: temp_git  # Temporary checkout location
+
+      - name: Move Git files to correct location
+        run: |
+          # Move all files from temp checkout to workspace root
+          mv $WORKSPACE_ROOT/temp_git/* $WORKSPACE_ROOT/
+          mv $WORKSPACE_ROOT/temp_git/.* $WORKSPACE_ROOT/ 2>/dev/null || true
+          rmdir $WORKSPACE_ROOT/temp_git
+          cd $WORKSPACE_ROOT
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -33,6 +46,7 @@ jobs:
 
       - name: Prepare sync configuration
         id: prep
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           # Create sync configuration file
           cat > sync-config.json << EOF
@@ -297,6 +311,7 @@ jobs:
           EOF
 
       - name: Checkout SVN repository
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           svn checkout "$SVN_REPO_URL" svn_repo \
             --non-interactive \
@@ -305,16 +320,13 @@ jobs:
             --password "$SVN_PASSWORD"
         continue-on-error: false
 
-      - name: Clean working directory
-        run: |
-          git clean -fd
-          git reset --hard HEAD
-
       - name: Check for conflicts
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           python sync_helper.py check-conflicts "." "svn_repo"
 
       - name: Sync SVN to Git
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           # Attempt SVN to Git sync
           python sync_helper.py svn-to-git "svn_repo" "."
@@ -337,6 +349,7 @@ jobs:
           fi
 
       - name: Sync Git to SVN
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           # Attempt Git to SVN sync
           python sync_helper.py git-to-svn "." "svn_repo"
@@ -358,6 +371,7 @@ jobs:
 
       - name: Update sync state
         if: success()
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           # Store the successful sync state
           GIT_COMMIT=$(git rev-parse HEAD)
@@ -366,6 +380,7 @@ jobs:
 
       - name: Cleanup
         if: always()
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           rm -f sync_helper.py sync-config.json .sync-state
           rm -rf svn_repo
