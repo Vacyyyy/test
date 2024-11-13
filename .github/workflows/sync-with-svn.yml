@@ -97,16 +97,20 @@ jobs:
               return result.stdout.strip()
 
           def check_for_conflicts(path):
+              # Change to the test directory before checking for conflicts
+              os.chdir('test')
+              
               # Check Git conflicts
               result = run_command(['git', 'ls-files', '-u'], check=False)
               if result.stdout.strip():
                   raise SyncError("Git conflicts detected")
-
+              
               # Check SVN conflicts
               if (Path(path) / '.svn').exists():
                   result = run_command(['svn', 'status'], cwd=path, check=False)
                   if any(line.startswith('C ') for line in result.stdout.splitlines()):
                       raise SyncError("SVN conflicts detected")
+              os.chdir('..')
 
           def should_ignore(path, ignore_patterns, root_path):
               path_str = str(path.relative_to(root_path))
@@ -314,9 +318,7 @@ jobs:
       - name: Check for conflicts
         working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
-          pwd
-          cd test/ # this should be fixed in the python code
-          python ../sync_helper.py check-conflicts "." "svn_repo"
+          python /sync_helper.py check-conflicts "." "svn_repo"
 
       - name: Sync SVN to Git
         working-directory: ${{ env.WORKSPACE_ROOT }}
