@@ -59,25 +59,25 @@ jobs:
           git svn fetch --username "$SVN_USERNAME"
 
       - name: Rebase SVN Changes onto Git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git branch --all
-          # Rebase the SVN branch onto the current branch to ensure changes are synced
-          git rebase remotes/git-svn
-
-      - name: Push SVN Changes to GitHub
-        run: |
-          # Push any new changes from SVN to GitHub
-          git push origin HEAD:main
+          git config --list
+          git status
+          if ! git diff --staged --quiet; then
+            git config --global user.email "github-action@users.noreply.github.com"
+            git config --global user.name "GitHub Action"
+            git commit -m "Sync changes from SVN to Git"
+            # Configure Git with token-based authentication
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git push
+            echo "Changes from SVN committed and pushed to Git"
+          else
+            echo "No changes from SVN to sync to Git"
+          fi
 
       - name: Sync Git Changes to SVN
         env:
           SVN_USERNAME: ${{ vars.SVN_USERNAME }}
         run: |
-          git rebase origin/main
           git svn dcommit --username "$SVN_USERNAME"
-
-      - name: Fetch and Push Final Changes from SVN to GitHub
-        run: |
-          git svn fetch
-          git rebase remotes/git-svn
-          git push origin HEAD:main
