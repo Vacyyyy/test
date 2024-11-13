@@ -23,15 +23,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          path: temp_git  # Temporary checkout location
-
-      - name: Move Git files to correct location
-        run: |
-          # Move all files from temp checkout to workspace root
-          mv $WORKSPACE_ROOT/temp_git/* $WORKSPACE_ROOT/
-          mv $WORKSPACE_ROOT/temp_git/.* $WORKSPACE_ROOT/ 2>/dev/null || true
-          rmdir $WORKSPACE_ROOT/temp_git
-          cd $WORKSPACE_ROOT
 
       - name: Setup Python
         uses: actions/setup-python@v5
