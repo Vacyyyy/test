@@ -44,10 +44,14 @@ jobs:
               "*.pyc",
               "__pycache__",
               "node_modules/",
-              "sync-config.json"
+              "sync-config.json",
+              ".sync-state"
             ]
           }
           EOF
+
+          # Create sync state tracking file
+          echo '{"last_git_commit": "", "last_svn_revision": ""}' > .sync-state
 
           # Create sync helper script
           cat > sync_helper.py << 'EOF'
@@ -57,79 +61,101 @@ jobs:
           import subprocess
           import fnmatch
           from pathlib import Path
+          from datetime import datetime
+
+          class SyncError(Exception):
+              pass
 
           def load_config():
               with open('sync-config.json', 'r') as f:
                   return json.load(f)
 
+          def load_sync_state():
+              try:
+                  with open('.sync-state', 'r') as f:
+                      return json.load(f)
+              except FileNotFoundError:
+                  return {"last_git_commit": "", "last_svn_revision": ""}
+
+          def save_sync_state(state):
+              with open('.sync-state', 'w') as f:
+                  json.dump(state, f)
+
+          def get_git_commit_hash():
+              result = run_command(['git', 'rev-parse', 'HEAD'])
+              return result.stdout.strip()
+
+          def get_svn_revision():
+              result = run_command(['svn', 'info', '--show-item', 'revision'])
+              return result.stdout.strip()
+
+          def check_for_conflicts(path):
+              # Check Git conflicts
+              result = run_command(['git', 'ls-files', '-u'], check=False)
+              if result.stdout.strip():
+                  raise SyncError("Git conflicts detected")
+
+              # Check SVN conflicts
+              if (Path(path) / '.svn').exists():
+                  result = run_command(['svn', 'status'], cwd=path, check=False)
+                  if any(line.startswith('C ') for line in result.stdout.splitlines()):
+                      raise SyncError("SVN conflicts detected")
+
           def should_ignore(path, ignore_patterns, root_path):
-              """
-              Enhanced ignore function that properly handles directory patterns
-              and checks parent paths for ignore patterns
-              """
               path_str = str(path.relative_to(root_path))
               
-              # Always ignore .git and .svn directories and their contents
               if '.git' in path.parts or '.svn' in path.parts:
                   return True
                   
-              # Check if any parent directory matches ignore patterns
               current = Path(path_str)
               while current != Path('.'):
                   if any(fnmatch.fnmatch(str(current), pattern) for pattern in ignore_patterns):
                       return True
                   current = current.parent
                   
-              # Check the file itself against patterns
               return any(fnmatch.fnmatch(path_str, pattern) for pattern in ignore_patterns)
 
-          def run_command(cmd, check=True):
+          def run_command(cmd, check=True, cwd=None):
               try:
                   result = subprocess.run(
                       cmd,
                       check=check,
                       capture_output=True,
-                      text=True
+                      text=True,
+                      cwd=cwd
                   )
                   return result
               except subprocess.CalledProcessError as e:
                   print(f"Error executing command: {' '.join(cmd)}")
                   print(f"Error output: {e.stderr}")
                   if check:
-                      sys.exit(1)
+                      raise SyncError(f"Command failed: {' '.join(cmd)}")
                   return e
 
           def sync_directories(source_path, target_path, ignore_patterns):
               source_path = Path(source_path).resolve()
               target_path = Path(target_path).resolve()
               
-              # Create target directory if it doesn't exist
               target_path.mkdir(parents=True, exist_ok=True)
               
-              # Track synced files
               synced_files = set()
               
-              # Walk through all files in source
               for source_file in source_path.rglob('*'):
                   if not source_file.is_file():
                       continue
                       
-                  # Skip ignored files
                   if should_ignore(source_file, ignore_patterns, source_path):
                       continue
                       
-                  # Calculate relative path
                   try:
                       relative_path = source_file.relative_to(source_path)
                   except ValueError:
-                      continue  # Skip files that are not under source_path
+                      continue
                       
                   target_file = target_path / relative_path
                   
-                  # Create parent directories if they don't exist
                   target_file.parent.mkdir(parents=True, exist_ok=True)
                   
-                  # Compare and copy if different
                   if not target_file.exists() or not files_are_identical(source_file, target_file):
                       print(f"Syncing: {relative_path}")
                       target_file.write_bytes(source_file.read_bytes())
@@ -145,7 +171,6 @@ jobs:
                   return False
 
           def get_managed_files(directory, ignore_patterns):
-              """Get list of files that should be managed (not ignored)"""
               directory = Path(directory)
               managed_files = set()
               
@@ -159,21 +184,32 @@ jobs:
                           
               return managed_files
 
+          def check_repository_status():
+              # Check Git status
+              result = run_command(['git', 'status', '--porcelain'])
+              if result.stdout.strip():
+                  raise SyncError("Git repository has uncommitted changes")
+
+              # Check SVN status
+              result = run_command(['svn', 'status'], cwd='svn_repo')
+              if result.stdout.strip():
+                  raise SyncError("SVN repository has uncommitted changes")
+
           def sync_git_to_svn(git_path, svn_path, config):
               ignore_patterns = config['ignore_patterns']
               git_path = Path(git_path)
               svn_path = Path(svn_path)
               
-              # Sync files from Git to SVN
+              # Check for conflicts before proceeding
+              check_for_conflicts(svn_path)
+              
               synced_files = sync_directories(git_path, svn_path, ignore_patterns)
               
-              # Add new files to SVN
               for relative_path in synced_files:
                   svn_file = svn_path / relative_path
                   if svn_file.exists():
                       run_command(['svn', 'add', str(svn_file), '--parents', '--force'], check=False)
               
-              # Handle deletions in SVN (only for managed files)
               managed_files_svn = get_managed_files(svn_path, ignore_patterns)
               for relative_path in managed_files_svn - synced_files:
                   svn_file = svn_path / relative_path
@@ -186,13 +222,13 @@ jobs:
               svn_path = Path(svn_path)
               git_path = Path(git_path)
               
-              # Get initial state of managed files in Git
+              # Check for conflicts before proceeding
+              check_for_conflicts(git_path)
+              
               managed_files_git = get_managed_files(git_path, ignore_patterns)
               
-              # Sync files from SVN to Git
               synced_files = sync_directories(svn_path, git_path, ignore_patterns)
               
-              # Handle deletions in Git (only for managed files)
               for relative_path in managed_files_git - synced_files:
                   git_file = git_path / relative_path
                   if git_file.exists() and not should_ignore(git_file, ignore_patterns, git_path):
@@ -206,18 +242,43 @@ jobs:
                   print("Usage: sync_helper.py <direction> <source_path> <target_path>")
                   sys.exit(1)
 
-              direction = sys.argv[1]
-              source_path = sys.argv[2]
-              target_path = sys.argv[3]
-              
-              config = load_config()
-              
-              if direction == 'git-to-svn':
-                  sync_git_to_svn(source_path, target_path, config)
-              elif direction == 'svn-to-git':
-                  sync_svn_to_git(source_path, target_path, config)
-              else:
-                  print(f"Unknown direction: {direction}")
+              try:
+                  direction = sys.argv[1]
+                  source_path = sys.argv[2]
+                  target_path = sys.argv[3]
+                  
+                  config = load_config()
+                  sync_state = load_sync_state()
+                  
+                  # Check repository status before sync
+                  check_repository_status()
+                  
+                  if direction == 'git-to-svn':
+                      sync_git_to_svn(source_path, target_path, config)
+                      
+                      # Update sync state
+                      sync_state['last_git_commit'] = get_git_commit_hash()
+                      sync_state['last_svn_revision'] = get_svn_revision()
+                      
+                  elif direction == 'svn-to-git':
+                      sync_svn_to_git(source_path, target_path, config)
+                      
+                      # Update sync state
+                      sync_state['last_git_commit'] = get_git_commit_hash()
+                      sync_state['last_svn_revision'] = get_svn_revision()
+                      
+                  else:
+                      print(f"Unknown direction: {direction}")
+                      sys.exit(1)
+                      
+                  # Save sync state
+                  save_sync_state(sync_state)
+                  
+              except SyncError as e:
+                  print(f"Sync error: {str(e)}")
+                  sys.exit(1)
+              except Exception as e:
+                  print(f"Unexpected error: {str(e)}")
                   sys.exit(1)
           EOF
 
@@ -242,8 +303,13 @@ jobs:
             --password "$SVN_PASSWORD"
         continue-on-error: false
 
+      - name: Check for conflicts
+        run: |
+          python sync_helper.py check-conflicts "." "svn_repo"
+
       - name: Sync SVN to Git
         run: |
+          # Attempt SVN to Git sync
           python sync_helper.py svn-to-git "svn_repo" "."
           
           # Configure Git
@@ -255,7 +321,9 @@ jobs:
           
           # Commit if there are changes
           if ! git diff --staged --quiet; then
-            git commit -m "Sync changes from SVN to Git [skip ci]"
+            git commit -m "Sync changes from SVN to Git [skip ci]
+            
+            SVN Revision: $(svn info --show-item revision svn_repo)"
             git push
           else
             echo "No changes to sync from SVN to Git"
@@ -263,6 +331,7 @@ jobs:
 
       - name: Sync Git to SVN
         run: |
+          # Attempt Git to SVN sync
           python sync_helper.py git-to-svn "." "svn_repo"
           
           # Commit changes if any
@@ -273,13 +342,23 @@ jobs:
               --trust-server-cert \
               --username "$SVN_USERNAME" \
               --password "$SVN_PASSWORD" \
-              -m "Sync changes from Git to SVN"
+              -m "Sync changes from Git to SVN
+              
+              Git Commit: $(git rev-parse HEAD)"
           else
             echo "No changes to sync from Git to SVN"
           fi
 
+      - name: Update sync state
+        if: success()
+        run: |
+          # Store the successful sync state
+          GIT_COMMIT=$(git rev-parse HEAD)
+          SVN_REV=$(svn info --show-item revision svn_repo)
+          echo "{\"last_git_commit\": \"$GIT_COMMIT\", \"last_svn_revision\": \"$SVN_REV\"}" > .sync-state
+
       - name: Cleanup
         if: always()
         run: |
-          rm -f sync_helper.py sync-config.json
+          rm -f sync_helper.py sync-config.json .sync-state
           rm -rf svn_repo
