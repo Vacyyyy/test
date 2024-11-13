@@ -315,8 +315,8 @@ jobs:
         working-directory: ${{ env.WORKSPACE_ROOT }}
         run: |
           pwd
-          cd test/
-          python sync_helper.py check-conflicts "." "svn_repo"
+          cd test/ # this should be fixed in the python code
+          python ../sync_helper.py check-conflicts "." "svn_repo"
 
       - name: Sync SVN to Git
         working-directory: ${{ env.WORKSPACE_ROOT }}
