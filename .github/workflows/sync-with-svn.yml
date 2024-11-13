@@ -26,8 +26,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           svn --username ${{ secrets.SVN_USERNAME }} --password ${{ secrets.SVN_PASSWORD }} --no-auth-cache --non-interactive list https://${{ secrets.SVN_REPO_URL }}
-          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --no-auth-cache --non-interactive
-          git svn fetch --no-auth-cache --non-interactive
+          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --no-auth-cache
           git rebase remotes/git-svn
           git svn dcommit
 
