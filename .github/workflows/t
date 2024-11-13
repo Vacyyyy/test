@@ -1,0 +1,206 @@
+Run python sync_helper.py svn-to-git "svn_repo" "."
+  python sync_helper.py svn-to-git "svn_repo" "."
+Syncing: .svnignore
+Syncing: GITHUB_ACTION_TEST
+Syncing: .svn/wc.db
+Syncing: .github/workflows/sync-with-svn.yml
+Syncing: .svn/pristine/f1/f1591d69bc64ea77cf85388ca4f0a60b35143381.svn-base
+Syncing: .svn/pristine/c5/c545c1688fae411066a175b7f3c4f10463408f91.svn-base
+Syncing: .svn/pristine/e2/e2e2937b9af916c75d9ce15f7516e0b9710afabe.svn-base
+Deleting from Git: sync_helper.py
+Deleting from Git: svn_repo/Igon the Drake Warrior.txt
+Deleting from Git: svn_repo/SVN.c
+Deleting from Git: svn_repo/gsdgds.txt
+Deleting from Git: svn_repo/llll.rtf
+Deleting from Git: svn_repo/TestN.txt
+Deleting from Git: svn_repo/1337.txt
+Deleting from Git: svn_repo/HalloSubversion06.txt
+Deleting from Git: svn_repo/.svn/pristine/f1/f1591d69bc64ea77cf85388ca4f0a60b35143381.svn-base
+Deleting from Git: svn_repo/.svn/pristine/c5/c545c1688fae411066a175b7f3c4f10463408f91.svn-base
+Deleting from Git: .git/info/exclude
+Deleting from Git: .git/logs/HEAD
+Deleting from Git: .git/hooks/prepare-commit-msg.sample
+Deleting from Git: .git/hooks/post-update.sample
+Deleting from Git: .git/hooks/pre-merge-commit.sample
+Deleting from Git: .git/hooks/pre-push.sample
+Deleting from Git: .git/hooks/applypatch-msg.sample
+Deleting from Git: .git/hooks/push-to-checkout.sample
+Deleting from Git: .git/hooks/pre-receive.sample
+Deleting from Git: .git/hooks/update.sample
+Deleting from Git: .git/hooks/pre-applypatch.sample
+Deleting from Git: .git/refs/heads/main
+Deleting from Git: .git/refs/remotes/origin/main
+Deleting from Git: .git/logs/refs/heads/main
+Deleting from Git: .git/logs/refs/remotes/origin/main
+Deleting from Git: qdtest/testtest/juchuuuuu.txt
+fatal: not a git repository (or any of the parent directories): .git
+Error: Process completed with exit code 128.
+
+import os
+import sys
+import json
+import subprocess
+import fnmatch
+from pathlib import Path
+
+def load_config():
+    with open('sync-config.json', 'r') as f:
+        return json.load(f)
+
+def should_ignore(path, ignore_patterns, root_path):
+    """
+    Enhanced ignore function that properly handles directory patterns
+    and checks parent paths for ignore patterns
+    """
+    path_str = str(path.relative_to(root_path))
+    
+    # Always ignore .git and .svn directories and their contents
+    if '.git' in path.parts or '.svn' in path.parts:
+        return True
+        
+    # Check if any parent directory matches ignore patterns
+    current = Path(path_str)
+    while current != Path('.'):
+        if any(fnmatch.fnmatch(str(current), pattern) for pattern in ignore_patterns):
+            return True
+        current = current.parent
+        
+    # Check the file itself against patterns
+    return any(fnmatch.fnmatch(path_str, pattern) for pattern in ignore_patterns)
+
+def run_command(cmd, check=True):
+    try:
+        result = subprocess.run(
+            cmd,
+            check=check,
+            capture_output=True,
+            text=True
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {' '.join(cmd)}")
+        print(f"Error output: {e.stderr}")
+        if check:
+            sys.exit(1)
+        return e
+
+def sync_directories(source_path, target_path, ignore_patterns):
+    source_path = Path(source_path).resolve()
+    target_path = Path(target_path).resolve()
+    
+    # Create target directory if it doesn't exist
+    target_path.mkdir(parents=True, exist_ok=True)
+    
+    # Track synced files
+    synced_files = set()
+    
+    # Walk through all files in source
+    for source_file in source_path.rglob('*'):
+        if not source_file.is_file():
+            continue
+            
+        # Skip ignored files
+        if should_ignore(source_file, ignore_patterns, source_path):
+            continue
+            
+        # Calculate relative path
+        try:
+            relative_path = source_file.relative_to(source_path)
+        except ValueError:
+            continue  # Skip files that are not under source_path
+            
+        target_file = target_path / relative_path
+        
+        # Create parent directories if they don't exist
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Compare and copy if different
+        if not target_file.exists() or not files_are_identical(source_file, target_file):
+            print(f"Syncing: {relative_path}")
+            target_file.write_bytes(source_file.read_bytes())
+        
+        synced_files.add(relative_path)
+    
+    return synced_files
+
+def files_are_identical(file1, file2):
+    try:
+        return file1.read_bytes() == file2.read_bytes()
+    except FileNotFoundError:
+        return False
+
+def get_managed_files(directory, ignore_patterns):
+    """Get list of files that should be managed (not ignored)"""
+    directory = Path(directory)
+    managed_files = set()
+    
+    for path in directory.rglob('*'):
+        if path.is_file() and not should_ignore(path, ignore_patterns, directory):
+            try:
+                relative_path = path.relative_to(directory)
+                managed_files.add(relative_path)
+            except ValueError:
+                continue
+                
+    return managed_files
+
+def sync_git_to_svn(git_path, svn_path, config):
+    ignore_patterns = config['ignore_patterns']
+    git_path = Path(git_path)
+    svn_path = Path(svn_path)
+    
+    # Sync files from Git to SVN
+    synced_files = sync_directories(git_path, svn_path, ignore_patterns)
+    
+    # Add new files to SVN
+    for relative_path in synced_files:
+        svn_file = svn_path / relative_path
+        if svn_file.exists():
+            run_command(['svn', 'add', str(svn_file), '--parents', '--force'], check=False)
+    
+    # Handle deletions in SVN (only for managed files)
+    managed_files_svn = get_managed_files(svn_path, ignore_patterns)
+    for relative_path in managed_files_svn - synced_files:
+        svn_file = svn_path / relative_path
+        if svn_file.exists():
+            print(f"Deleting from SVN: {relative_path}")
+            run_command(['svn', 'rm', str(svn_file)], check=False)
+
+def sync_svn_to_git(svn_path, git_path, config):
+    ignore_patterns = config['ignore_patterns']
+    svn_path = Path(svn_path)
+    git_path = Path(git_path)
+    
+    # Get initial state of managed files in Git
+    managed_files_git = get_managed_files(git_path, ignore_patterns)
+    
+    # Sync files from SVN to Git
+    synced_files = sync_directories(svn_path, git_path, ignore_patterns)
+    
+    # Handle deletions in Git (only for managed files)
+    for relative_path in managed_files_git - synced_files:
+        git_file = git_path / relative_path
+        if git_file.exists() and not should_ignore(git_file, ignore_patterns, git_path):
+            print(f"Deleting from Git: {relative_path}")
+            git_file.unlink(missing_ok=True)
+            
+    return synced_files
+
+if __name__ == '__main__':
+    if len(sys.argv) != 4:
+        print("Usage: sync_helper.py <direction> <source_path> <target_path>")
+        sys.exit(1)
+
+    direction = sys.argv[1]
+    source_path = sys.argv[2]
+    target_path = sys.argv[3]
+    
+    config = load_config()
+    
+    if direction == 'git-to-svn':
+        sync_git_to_svn(source_path, target_path, config)
+    elif direction == 'svn-to-git':
+        sync_svn_to_git(source_path, target_path, config)
+    else:
+        print(f"Unknown direction: {direction}")
+        sys.exit(1)
