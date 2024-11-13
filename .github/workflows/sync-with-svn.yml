@@ -24,19 +24,17 @@ jobs:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global svn-remote.svn.url "https://${{ secrets.SVN_REPO_URL }}"
-          git config --global svn-remote.svn.username "${{ secrets.SVN_USERNAME }}"
-          git config --global svn-remote.svn.password "${{ secrets.SVN_PASSWORD }}"
-          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags
+          svn --non-interactive --username ${SVN_USERNAME} --password ${SVN_PASSWORD} info ${SVN_REPO_URL}
+          git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags --username ${SVN_USERNAME}
+          git svn fetch --username ${SVN_USERNAME}
           git rebase remotes/git-svn
-          git svn dcommit
+          git svn dcommit --username ${SVN_USERNAME}
 
       - name: Sync changes from SVN to Git
         run: |
           # Ensure that we're up to date with the SVN repo
-          git svn fetch --no-auth-cache --non-interactive
+          git svn fetch --username ${SVN_USERNAME}
 
           # Sync SVN changes to the local Git repo
           git rebase remotes/git-svn
