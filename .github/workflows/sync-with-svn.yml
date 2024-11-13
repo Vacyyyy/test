@@ -10,174 +10,36 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install SVN
-        run: sudo apt-get update && sudo apt-get install -y subversion rsync
+      - name: Install git-svn and SVN
+        run: sudo apt-get update && sudo apt-get install -y git-svn subversion
 
       - name: Configure SVN credentials
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
         run: |
-          mkdir -p ~/.subversion
-          cat > ~/.subversion/servers << EOF
-          [global]
-          store-passwords = yes
-          store-plaintext-passwords = yes
-          EOF
-          mkdir -p ~/.subversion/auth/svn.simple
+          git config --global svn.username "$SVN_USERNAME"
+          git config --global svn.password "$SVN_PASSWORD"
 
-      - name: Checkout SVN repository
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
+      - name: Sync changes from Git to SVN
         run: |
-          mkdir -p svn_repo
-          echo '#!/bin/bash' > svn_cred_script
-          echo "echo -n \$SVN_USERNAME" >> svn_cred_script
-          echo "echo" >> svn_cred_script
-          echo "echo -n \$SVN_PASSWORD" >> svn_cred_script
-          chmod +x svn_cred_script
-          SVN_AUTH_FILE="$PWD/svn_cred_script"
-          svn checkout "$SVN_REPO_URL" svn_repo \
-            --non-interactive \
-            --trust-server-cert \
-            --config-option servers:global:store-plaintext-passwords=yes \
-            --config-option servers:global:store-passwords=yes \
-            --config-option config:auth:password-stores=simple \
-            --username "$SVN_USERNAME" \
-            --password "$SVN_PASSWORD"
+          # Set up the SVN repository as a git-svn remote
+          git svn init ${{ secrets.SVN_REPO_URL }} --trunk=trunk --branches=branches --tags=tags
+          git svn fetch
+          
+          # Make sure the latest changes are fetched and synced
+          git rebase remotes/git-svn
 
+          # Push changes from Git to SVN
+          git svn dcommit
+          
       - name: Sync changes from SVN to Git
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Store current directory
-          WORKFLOW_DIR="$PWD"
+          # Ensure that we're up to date with the SVN repo
+          git svn fetch
 
-          # Create separate ignore patterns for SVN and Git
-          cat > "$WORKFLOW_DIR/svn_ignore_patterns.txt" << EOF
-          .svn/
-          .git/
-          .github/
-          .hooks/
-          EOF
+          # Sync SVN changes to the local Git repo
+          git rebase remotes/git-svn
 
-          cat > "$WORKFLOW_DIR/git_ignore_patterns.txt" << EOF
-          .svn/
-          .git/
-          .github/
-          .svnignore
-          EOF
-
-          # Debugging: Check if the files were created
-          echo "Created svn_ignore_patterns.txt in $WORKFLOW_DIR"
-          cat "$WORKFLOW_DIR/svn_ignore_patterns.txt"
-          echo "Created git_ignore_patterns.txt in $WORKFLOW_DIR"
-          cat "$WORKFLOW_DIR/git_ignore_patterns.txt"
-
-          should_ignore() {
-          local file="$1"
-          local patterns_file="$2"
-          while IFS= read -r pattern; do
-              [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
-          done < "$patterns_file"
-          return 1
-          }
-
-          # Get list of all files in SVN working copy
-          cd svn_repo
-          find . -type f | while IFS= read -r file; do
-            # Remove leading './' from file path
-            file="${file#./}"
-
-            # Skip files that should be ignored in Git
-            if should_ignore "$file" "$WORKFLOW_DIR/git_ignore_patterns.txt"; then
-              continue
-            fi
-
-            # If file exists and is not in Git or is different
-            if [ -f "$file" ]; then
-              if [ ! -f "../$file" ] || ! cmp -s "$file" "../$file"; then
-                echo "Syncing $file from SVN to Git"
-                # Ensure target directory exists
-                mkdir -p "$(dirname "../$file")"
-                # Copy the file
-                cp "$file" "../$file"
-                # Add to Git
-                git -C .. add "$file"
-              fi
-            fi
-          done
-
-          # If there are changes, commit them
-          cd ..
-          if ! git diff --staged --quiet; then
-            git config --global user.email "github-action@users.noreply.github.com"
-            git config --global user.name "GitHub Action"
-            git commit -m "Sync changes from SVN to Git"
-            # Configure Git with token-based authentication
-            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git push
-            echo "Changes from SVN committed and pushed to Git"
-          else
-            echo "No changes from SVN to sync to Git"
-          fi
-
-      - name: Sync Git to SVN
-        run: |
-          should_ignore() {
-              local file="$1"
-              local patterns_file="$2"
-              while IFS= read -r pattern; do
-                  [[ -n "$pattern" && "$file" == *"$pattern"* ]] && return 0
-              done < "$patterns_file"
-              return 1
-          }
-
-          # Sync changes from Git to SVN
-          git ls-files | while read -r file; do
-              # Ensure the file isn't ignored by SVN
-              if should_ignore "$file" "$WORKFLOW_DIR/svn_ignore_patterns.txt"; then
-                  continue
-              fi
-
-              # Check if the file doesn't exist in SVN or if it differs from the Git version
-              if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
-                  echo "Syncing $file from Git to SVN"
-
-                  # Ensure target directory exists in SVN repo
-                  mkdir -p "svn_repo/$(dirname "$file")"
-
-                  # Copy the file from Git to SVN
-                  cp "$file" "svn_repo/$file"
-              fi
-          done
-
-          # Check if the file doesn't exist in SVN or if it differs from the Git version
-          if [ ! -f "svn_repo/$file" ] || ! diff -q "$file" "svn_repo/$file" > /dev/null; then
-              echo "Syncing $file from Git to SVN"
-              
-              # Ensure target directory exists in SVN repo
-              mkdir -p "svn_repo/$(dirname "$file")"
-              
-              # Copy the file from Git to SVN
-              cp "$file" "svn_repo/$file"
-          fi
-          done
-
-      - name: Commit and Push to SVN
-        env:
-          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
-          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-        run: |
-          cd svn_repo
-          svn add --force * --auto-props --parents --depth infinity -q --non-interactive --trust-server-cert --username "$SVN_USERNAME" --password "$SVN_PASSWORD" || true
-          if [[ -n "$(svn status)" ]]; then
-            svn commit --non-interactive --trust-server-cert --username "$SVN_USERNAME" --password "$SVN_PASSWORD" -m "Sync changes from Git to SVN"
-            echo "Changes pushed to SVN"
-          else
-            echo "No changes to commit to SVN"
-          fi
+          # Commit and push any changes to Git
+          git push
