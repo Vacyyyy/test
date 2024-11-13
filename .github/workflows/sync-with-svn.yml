@@ -13,10 +13,10 @@ jobs:
       - name: Install git-svn and SVN
         run: |
           sudo apt-get update
-          sudo apt-get remove git git-svn
+          sudo apt-get remove git
           sudo apt-get autoremove
           sudo apt-get clean
-          sudo apt-get install -y git-svn subversion
+          sudo apt-get install -y git-svn
 
       - name: Sync changes from Git to SVN
         env:
@@ -25,7 +25,7 @@ jobs:
           SVN_REPO_URL: ${{ secrets.SVN_REPO_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "machine ${SVN_REPO_URL} login ${SVN_USERNAME} password ${SVN_PASSWORD}" > ~/.netrc
+          svn --username ${{ secrets.SVN_USERNAME }} --password ${{ secrets.SVN_PASSWORD }} --no-auth-cache --non-interactive list https://${{ secrets.SVN_REPO_URL }}
           git svn init "https://${SVN_REPO_URL}" --trunk=trunk --branches=branches --tags=tags
           git svn fetch
           git rebase remotes/git-svn
