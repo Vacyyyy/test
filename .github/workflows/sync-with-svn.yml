@@ -82,7 +82,7 @@ jobs:
         run: |
           # Fetch any new changes from SVN to ensure Git is up-to-date
           git svn fetch
-          git rebase refs/remotes/git-svn
+          git rebase remotes/git-svn --remote
 
           # Push any remaining changes to GitHub
           git push origin HEAD:main
