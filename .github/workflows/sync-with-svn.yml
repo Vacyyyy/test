@@ -44,35 +44,33 @@ jobs:
 
       - name: Setup ignore patterns
         run: |
+          # Create global SVN ignore property
+          cat > svn_ignore_patterns << EOF
+          .svn
+          .git
+          .github
+          .hooks
+          .gitignore
+          .svnignore
+          EOF
+
+          # Apply SVN ignore patterns globally in the SVN repository
+          cd svn_repo
+          svn propset svn:global-ignores -F ../svn_ignore_patterns .
+          svn update --non-interactive --trust-server-cert \
+            --username "$SVN_USERNAME" --password "$SVN_PASSWORD"
+          cd ..
+
           # Create .gitignore if it doesn't exist
           if [ ! -f .gitignore ]; then
-            touch .gitignore
+            cat > .gitignore << EOF
+          .svn/
+          .git/
+          .github/
+          .hooks/
+          .svnignore
+          EOF
           fi
-          
-          # Create .svnignore if it doesn't exist
-          if [ ! -f svn_repo/.svnignore ]; then
-            touch svn_repo/.svnignore
-          fi
-          
-          # Ensure standard ignore patterns are present
-          for pattern in ".svn/" ".git/" ".github/" ".hooks/"; do
-            if ! grep -q "^${pattern}$" .gitignore; then
-              echo "$pattern" >> .gitignore
-            fi
-            if ! grep -q "^${pattern}$" svn_repo/.svnignore; then
-              echo "$pattern" >> svn_repo/.svnignore
-            fi
-          done
-          
-          # Add .svnignore to Git ignore
-          if ! grep -q "^.svnignore$" .gitignore; then
-            echo ".svnignore" >> .gitignore
-          fi
-          
-          # Configure SVN to use the ignore file
-          cd svn_repo
-          svn propset svn:ignore -F .svnignore .
-          cd ..
 
       - name: Sync changes from SVN to Git
         env:
@@ -81,31 +79,39 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Function to check if a file should be ignored
-          check_ignore() {
+          is_ignored() {
             local file="$1"
-            local base_dir="$2"
-            local ignore_file="$3"
+            local patterns_file="$2"
             
             # Normalize path
             file="${file#./}"
             
-            # Check if file matches any ignore pattern
-            if [ -f "$base_dir/$ignore_file" ]; then
-              while IFS= read -r pattern; do
-                # Skip empty lines and comments
-                [[ -z "$pattern" || "$pattern" == \#* ]] && continue
-                
-                # Remove trailing slash for directory patterns
-                pattern="${pattern%/}"
-                
-                # Check if file matches the pattern
-                if [[ "$file" == $pattern* || "$file" == *"/$pattern"* ]]; then
-                  return 0
-                fi
-              done < "$base_dir/$ignore_file"
-            fi
+            # Check against ignore patterns
+            while IFS= read -r pattern; do
+              # Skip empty lines and comments
+              [[ -z "$pattern" || "$pattern" == \#* ]] && continue
+              
+              # Remove trailing slash and clean pattern
+              pattern="${pattern%/}"
+              pattern="${pattern#/}"
+              
+              # Convert path to pattern format
+              if [[ "$file" == "$pattern" || "$file" == "$pattern"/* || "$file" == */"$pattern"/* ]]; then
+                return 0
+              fi
+            done < "$patterns_file"
             return 1
           }
+
+          # Create temporary ignore patterns file
+          cat > temp_ignore_patterns << EOF
+          .svn
+          .git
+          .github
+          .hooks
+          .gitignore
+          .svnignore
+          EOF
 
           # Sync SVN to Git
           cd svn_repo
@@ -114,7 +120,7 @@ jobs:
           
           find . -type f | while IFS= read -r file; do
             # Skip .svn directories and ignored files
-            if [[ "$file" == */.svn/* ]] || check_ignore "$file" "." ".svnignore"; then
+            if [[ "$file" == */.svn/* ]] || is_ignored "${file#./}" "../temp_ignore_patterns"; then
               continue
             fi
             
@@ -130,6 +136,8 @@ jobs:
           done
           
           cd ..
+          rm temp_ignore_patterns
+          
           if ! git diff --staged --quiet; then
             git config --global user.email "github-action@users.noreply.github.com"
             git config --global user.name "GitHub Action"
@@ -146,10 +154,20 @@ jobs:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
         run: |
+          # Create temporary ignore patterns file
+          cat > temp_ignore_patterns << EOF
+          .svn
+          .git
+          .github
+          .hooks
+          .gitignore
+          .svnignore
+          EOF
+
           # Sync Git to SVN
           git ls-files | while read -r file; do
             # Skip ignored files
-            if check_ignore "$file" "." ".gitignore"; then
+            if is_ignored "$file" "temp_ignore_patterns"; then
               continue
             fi
             
@@ -160,15 +178,24 @@ jobs:
             fi
           done
           
+          rm temp_ignore_patterns
+          
           # Commit changes to SVN
           cd svn_repo
-          # Add all new files, but respect svn:ignore
+          
+          # Remove any .github directory if it exists
+          if [ -d ".github" ]; then
+            svn rm --force .github
+          fi
+          
+          # Add new files that aren't ignored
           svn status | grep '^?' | cut -c9- | while IFS= read -r file; do
-            if ! check_ignore "$file" "." ".svnignore"; then
+            if ! is_ignored "$file" "../temp_ignore_patterns"; then
               svn add --parents "$file"
             fi
           done
           
+          # Check if there are any changes to commit
           if [[ -n "$(svn status)" ]]; then
             svn commit --non-interactive --trust-server-cert \
               --username "$SVN_USERNAME" --password "$SVN_PASSWORD" \
