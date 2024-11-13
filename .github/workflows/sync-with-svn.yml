@@ -11,7 +11,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install git-svn and SVN
-        run: sudo apt-get update && sudo apt-get install -y git-svn subversion
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git=1:2.33.0-1ubuntu1
+          sudo apt-get install -y git-svn subversion
 
       - name: Configure SVN credentials
         env:
