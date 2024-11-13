@@ -17,6 +17,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          clean: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -302,6 +304,11 @@ jobs:
             --username "$SVN_USERNAME" \
             --password "$SVN_PASSWORD"
         continue-on-error: false
+
+      - name: Clean working directory
+        run: |
+          git clean -fd
+          git reset --hard HEAD
 
       - name: Check for conflicts
         run: |
