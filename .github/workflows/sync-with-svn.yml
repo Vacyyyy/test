@@ -13,9 +13,10 @@ jobs:
       - name: Install git-svn and SVN
         run: |
           sudo apt-get update
-          sudo apt-get remove git
-          sudo apt-get autoremove
-          sudo apt-get clean
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install -y git
           sudo apt-get install -y git-svn
 
       - name: Sync changes from Git to SVN
